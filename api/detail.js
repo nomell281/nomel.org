@@ -1,24 +1,27 @@
 // api/detail.js
 // 사용법:
-//   /api/detail?p=제목|작성자|시간|내용&c=댓글작성자|댓글내용~댓글작성자2|댓글내용2~...
+//   /api/detail?p=제목|작성자|시간|내용|반응&c=댓글작성자|댓글내용|반응~댓글작성자2|댓글내용2|반응2~...
 // 구분자: 단어 사이는 "_", 필드 사이는 "|", 댓글 사이는 "~"
-// (반응/좋아요는 없음)
+// 반응 형식: "이모지+숫자"를 "-"로 연결, 최대 5개, 매번 다른 이모지 조합 가능
+//   예) 🔥12-💀5-😱3-🤣8-🥰2
 //
 // 화면 구성:
 //   Anonymous Board (좁은 헤더)
 //   ------------------
 //   제목
 //   ------------------
-//   작성자 · 시간
+//   프로필 작성자 · 시간
 //   ------------------
 //   내용
+//   🔥💀😱🤣 반응
 //   ==================  (굵은 구분선)
 //   댓글 갯수
-//   작성자
+//   프로필 작성자
 //   댓글
-//   작성자
+//   🔥💀😱🤣 반응
+//   프로필 작성자
 //   댓글
-//   (댓글에는 반응 없음)
+//   🔥💀😱🤣 반응
 
 function esc(s = "") {
   return String(s)
@@ -60,6 +63,67 @@ function wrap(text, fontSize, maxWidthPx) {
   return lines;
 }
 
+// 닉네임 기반 해시로 아바타 배경색을 고름 (같은 닉네임은 항상 같은 색)
+const AVATAR_PALETTE = [
+  "#FF8FB3", "#FFB37A", "#FFD666", "#9BE0A0",
+  "#7ED6C1", "#7EC8E3", "#9FA8FF", "#C79BFF",
+  "#FF9BD2", "#B8C4D9",
+];
+function colorForName(name) {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+    hash |= 0;
+  }
+  return AVATAR_PALETTE[Math.abs(hash) % AVATAR_PALETTE.length];
+}
+
+let avatarIdCounter = 0;
+function renderAvatar(cx, cy, r, name) {
+  const id = `av${avatarIdCounter++}`;
+  const color = colorForName(name);
+  return `
+    <clipPath id="${id}"><circle cx="${cx}" cy="${cy}" r="${r}"/></clipPath>
+    <g clip-path="url(#${id})">
+      <circle cx="${cx}" cy="${cy}" r="${r}" fill="${color}"/>
+      <circle cx="${cx}" cy="${cy - r * 0.28}" r="${r * 0.4}" fill="#FFFFFF"/>
+      <circle cx="${cx}" cy="${cy + r * 0.95}" r="${r * 0.85}" fill="#FFFFFF"/>
+    </g>
+  `;
+}
+
+function parseReactions(str = "") {
+  if (!str) return [];
+  return str
+    .split("-")
+    .map((r) => {
+      const m = r.match(/^(\D+)(\d+)$/u);
+      if (!m) return null;
+      return { emoji: m[1], count: m[2] };
+    })
+    .filter(Boolean)
+    .slice(0, 5);
+}
+
+function reactionsRow(x, y, items) {
+  let cx = x;
+  const pillH = 24;
+  const pillY = y - pillH + 6;
+  const parts = items.map((it) => {
+    const digits = String(it.count).length;
+    const w = 36 + Math.max(0, digits - 1) * 8;
+    const svg = `
+      <rect x="${cx}" y="${pillY}" width="${w}" height="${pillH}" rx="12" fill="#F5EFFF"/>
+      <text x="${cx + w / 2}" y="${y}" font-size="12.5" text-anchor="middle" fill="#3D2C4E">${
+      it.emoji
+    } ${it.count}</text>
+    `;
+    cx += w + 8;
+    return svg;
+  });
+  return parts.join("");
+}
+
 // ---- 레이아웃 상수 ----
 const PAD = 24;
 const HEADER_H = 46;
@@ -70,7 +134,7 @@ const COMMENT_LINE_HEIGHT = 19;
 
 const GAP_TO_DIVIDER = 14;
 const GAP_FROM_DIVIDER = 24;
-const GAP_BETWEEN_COMMENTS = 22;
+const GAP_BETWEEN_COMMENTS = 40;
 
 function divider(y, thick) {
   return `<line x1="0" y1="${y}" x2="375" y2="${y}" stroke="${
@@ -80,11 +144,14 @@ function divider(y, thick) {
 
 module.exports = (req, res) => {
   const url = new URL(req.url, "http://x");
-  const [title, author, time, content] = (url.searchParams.get("p") || "").split("|");
+  const [title, author, time, content, reactionsRaw] = (url.searchParams.get("p") || "").split(
+    "|"
+  );
   const commentsRaw = (url.searchParams.get("c") || "").split("~").filter(Boolean);
 
   const titleLines = wrap(deslug(title || ""), 17, 327);
   const contentLines = wrap(deslug(content || ""), 13.5, 327);
+  const reacts = parseReactions(reactionsRaw || "");
   const commentCount = commentsRaw.length;
 
   const parts = [];
@@ -109,9 +176,13 @@ module.exports = (req, res) => {
   parts.push(divider(dY));
   y = dY + GAP_FROM_DIVIDER;
 
-  // 작성자 · 시간
+  // 작성자 · 시간 (프로필 사진 포함)
+  const AVATAR_R_POST = 12;
   parts.push(
-    `<text x="${PAD}" y="${y}" font-size="11.5" fill="#B79FE0">${esc(
+    renderAvatar(PAD + AVATAR_R_POST, y - AVATAR_R_POST + 4, AVATAR_R_POST, deslug(author || "익명"))
+  );
+  parts.push(
+    `<text x="${PAD + AVATAR_R_POST * 2 + 8}" y="${y}" font-size="11.5" fill="#B79FE0">${esc(
       deslug(author || "익명")
     )} · ${esc(deslug(time || ""))}</text>`
   );
@@ -135,6 +206,10 @@ module.exports = (req, res) => {
   );
   y = contentStartY + (contentLines.length - 1) * CONTENT_LINE_HEIGHT;
 
+  // 반응
+  y += 42;
+  parts.push(reactionsRow(PAD, y, reacts));
+
   // 굵은 구분선 (댓글 영역 시작 전)
   dY = y + GAP_TO_DIVIDER + 6;
   parts.push(divider(dY, true));
@@ -146,14 +221,19 @@ module.exports = (req, res) => {
   );
   y += GAP_BETWEEN_COMMENTS;
 
-  // 댓글 목록 (반응 없음)
+  // 댓글 목록 (프로필 사진 + 반응 포함)
+  const AVATAR_R_COMMENT = 11;
   commentsRaw.forEach((c) => {
-    const [ca, ctext] = c.split("|");
+    const [ca, ctext, creact] = c.split("|");
     const author2 = deslug(ca || "익명");
-    const lines = wrap(deslug(ctext || ""), 13, 327);
+    const lines = wrap(deslug(ctext || ""), 13, 327 - (AVATAR_R_COMMENT * 2 + 8));
+    const cReacts = parseReactions(creact || "");
 
     parts.push(
-      `<text x="${PAD}" y="${y}" font-size="13" font-weight="700" fill="#3D2C4E">${esc(
+      renderAvatar(PAD + AVATAR_R_COMMENT, y - AVATAR_R_COMMENT + 4, AVATAR_R_COMMENT, author2)
+    );
+    parts.push(
+      `<text x="${PAD + AVATAR_R_COMMENT * 2 + 8}" y="${y}" font-size="13" font-weight="700" fill="#3D2C4E">${esc(
         author2
       )}</text>`
     );
@@ -169,6 +249,8 @@ module.exports = (req, res) => {
         .join("")
     );
     y += (lines.length - 1) * COMMENT_LINE_HEIGHT;
+    y += 22;
+    parts.push(reactionsRow(PAD, y, cReacts));
     y += GAP_BETWEEN_COMMENTS;
   });
 
