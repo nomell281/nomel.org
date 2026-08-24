@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="375" height="600" viewBox="0 0 375 600" font-family="-apple-system, 'Helvetica Neue', Arial, sans-serif">
+  <!-- 배경 -->
+  <rect width="375" height="600" fill="#ffffff"/>
+
+  <!-- 상단 헤더 -->
+  <g transform="translate(0,0)">
+    <text x="16" y="30" font-size="20" fill="#111111">←</text>
+    <circle cx="66" cy="24" r="16" fill="#e0e0e0" stroke="#dddddd"/>
+    <text x="90" y="21" font-size="13.5" font-weight="600" fill="#111111">theo_k</text>
+    <text x="90" y="35" font-size="10.5" fill="#8e8e8e">활동 중</text>
+    <text x="325" y="18" font-size="15" fill="#111111">📞</text>
+    <text x="352" y="18" font-size="15" fill="#111111">ⓘ</text>
+  </g>
+  <line x1="0" y1="46" x2="375" y2="46" stroke="#efefef" stroke-width="1"/>
+
+  <!-- 채팅 영역 -->
+  <g transform="translate(0,64)">
+    <!-- 상대 메시지 -->
+    <circle cx="26" cy="14" r="14" fill="#e0e0e0"/>
+    <rect x="48" y="0" width="147" height="34" rx="17" fill="#efefef"/>
+    <text x="64" y="21" font-size="12.5" fill="#111111">야 오늘 연습 안 왔던데</text>
+
+    <!-- 상대 메시지 2 -->
+    <circle cx="26" cy="60" r="14" fill="#e0e0e0"/>
+    <rect x="48" y="46" width="101" height="34" rx="17" fill="#efefef"/>
+    <text x="64" y="67" font-size="12.5" fill="#111111">무슨 일 있어?</text>
+
+    <!-- 내 메시지 -->
+    <rect x="172" y="98" width="187" height="34" rx="17" fill="#3897f0"/>
+    <text x="343" y="119" font-size="12.5" fill="#ffffff" text-anchor="end">아 잠깐 몸이 좀 안 좋았어 ㅠㅠ</text>
+
+    <!-- 상대 메시지 3 -->
+    <circle cx="26" cy="166" r="14" fill="#e0e0e0"/>
+    <rect x="48" y="152" width="193" height="34" rx="17" fill="#efefef"/>
+    <text x="64" y="173" font-size="12.5" fill="#111111">괜찮아? 코치님한텐 말씀드렸고</text>
+
+    <!-- 내 메시지 2 -->
+    <rect x="241" y="200" width="118" height="34" rx="17" fill="#3897f0"/>
+    <text x="343" y="221" font-size="12.5" fill="#ffffff" text-anchor="end">응 문자로 보냈어</text>
+
+    <!-- 상대 메시지 - 사진 첨부 (설명 텍스트로 대체) -->
+    <circle cx="26" cy="270" r="14" fill="#e0e0e0"/>
+    <rect x="48" y="252" width="150" height="110" rx="14" fill="#e5e5e5"/>
+    <text x="123" y="298" font-size="10" fill="#999999" text-anchor="middle">[이미지 설명]</text>
+    <text x="123" y="316" font-size="11" fill="#555555" text-anchor="middle">체육관 앞에서</text>
+    <text x="123" y="332" font-size="11" fill="#555555" text-anchor="middle">걱정스러운 표정으로</text>
+    <text x="123" y="348" font-size="11" fill="#555555" text-anchor="middle">셀카 찍은 테오</text>
+
+    <!-- 타이핑 표시 -->
+    <circle cx="26" cy="392" r="14" fill="#e0e0e0"/>
+    <rect x="48" y="378" width="60" height="30" rx="15" fill="#efefef"/>
+    <circle cx="66" cy="393" r="3" fill="#9a9a9a"/>
+    <circle cx="78" cy="393" r="3" fill="#9a9a9a"/>
+    <circle cx="90" cy="393" r="3" fill="#9a9a9a"/>
+  </g>
+
+  <!-- 하단 입력창 -->
+  <g transform="translate(0,520)">
+    <line x1="0" y1="0" x2="375" y2="0" stroke="#efefef" stroke-width="1"/>
+    <circle cx="28" cy="30" r="14" fill="none" stroke="#111111" stroke-width="1.5"/>
+    <text x="28" y="34" font-size="14" fill="#111111" text-anchor="middle">＋</text>
+    <rect x="52" y="12" width="250" height="36" rx="18" fill="#f2f2f2"/>
+    <text x="68" y="34" font-size="12" fill="#9a9a9a">메시지 보내기...</text>
+    <text x="320" y="34" font-size="16" fill="#111111">❤</text>
+  </g>
+</svg>
