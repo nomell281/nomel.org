@@ -209,20 +209,62 @@ function parsePosted(pStr) {
   });
   return result;
 }
+// p에 없는 멤버(주요 멤버든 엑스트라든 구분 없이)에게 랜덤 배정할 상태 풀
+// '대기중'도 하나의 결과로 포함 — 활동 중이거나 아직 안 찍었거나 둘 다 나올 수 있음
+const EXTRA_ACTIVITIES = ['부활동 중', '공부하는 중', '운동하는 중', '산책 중', '식사하는 중', '대기중'];
+
+// 이름(+date)을 시드로 상태를 고정 배정 — 같은 날짜엔 같은 결과, 날짜 바뀌면 결과도 바뀜
+function pickActivity(name, date) {
+  const seed = name + '_' + date;
+  let hash = 0;
+  for (let i = 0; i < seed.length; i++) {
+    hash = seed.charCodeAt(i) + ((hash << 5) - hash);
+    hash |= 0;
+  }
+  return EXTRA_ACTIVITIES[Math.abs(hash) % EXTRA_ACTIVITIES.length];
+}
+
 // 그룹 로스터 + overrides(이름별 time/content/posted)를 합쳐 members 배열 생성
-function buildGroupMembers(groupKey, overrides) {
+// date: 미지정 멤버 상태 시드 + 시간 동기화용
+function buildGroupMembers(groupKey, overrides, date) {
   const group = GROUPS[groupKey];
   if (!group) return null;
 
+  // overrides 중 하나라도 있으면 그 시간을 미지정 멤버들의 기준 시간으로 재사용
+  const overrideValues = Object.values(overrides);
+  const sharedTime = (overrideValues.find(v => v.time) || {}).time || '';
+
   const members = group.roster.map(m => {
-    const ov = overrides[m.name] || {};
+    const ov = overrides[m.name];
+    if (ov) {
+      return {
+        name: m.name,
+        initial: m.initial,
+        color: m.color,
+        time: ov.time || '',
+        content: ov.content || '',
+        posted: true
+      };
+    }
+    // 언급 안 된 멤버(주요/엑스트라 구분 없음): 랜덤으로 활동 중이거나 대기중
+    const result = pickActivity(m.name, date);
+    if (result === '대기중') {
+      return {
+        name: m.name,
+        initial: m.initial,
+        color: m.color,
+        time: '',
+        content: '',
+        posted: false
+      };
+    }
     return {
       name: m.name,
       initial: m.initial,
       color: m.color,
-      time: ov.time || '',
-      content: ov.content || '',
-      posted: ov.posted === true
+      time: sharedTime,
+      content: result,
+      posted: true
     };
   });
 
@@ -249,7 +291,7 @@ module.exports = (req, res) => {
     if (group) {
       // p: "이름|시간|내용~이름2|시간2|내용2" 형식 (list.js/detail.js와 동일 구분자 컨벤션)
       const parsedOverrides = parsePosted(q.get('p'));
-      const built = buildGroupMembers(group, parsedOverrides);
+      const built = buildGroupMembers(group, parsedOverrides, date);
       if (!built) {
         res.status(400).send(`알 수 없는 g입니다. (사용 가능: ${Object.keys(GROUPS).join(', ')})`);
         return;
