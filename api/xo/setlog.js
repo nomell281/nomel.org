@@ -229,13 +229,15 @@ function buildGroupMembers(groupKey, overrides) {
   return { title: group.title, members };
 }
 
-module.exports = async (req, res) => {
+module.exports = (req, res) => {
   try {
-    const q = req.query;
-    const group = q.g || q.group;
-    const date = q.d || q.date;
-    const title = q.t || q.title;
-    const members = q.members;
+    const url = new URL(req.url, "http://x");
+    const q = url.searchParams;
+
+    const group = q.get('g') || q.get('group');
+    const date = q.get('d') || q.get('date');
+    const title = q.get('t') || q.get('title');
+    const members = q.get('members');
 
     if (!date) {
       res.status(400).send('d(date) 파라미터가 필요합니다.');
@@ -246,7 +248,7 @@ module.exports = async (req, res) => {
 
     if (group) {
       // p: "이름|시간|내용~이름2|시간2|내용2" 형식 (list.js/detail.js와 동일 구분자 컨벤션)
-      const parsedOverrides = parsePosted(q.p);
+      const parsedOverrides = parsePosted(q.get('p'));
       const built = buildGroupMembers(group, parsedOverrides);
       if (!built) {
         res.status(400).send(`알 수 없는 g입니다. (사용 가능: ${Object.keys(GROUPS).join(', ')})`);
@@ -278,7 +280,8 @@ module.exports = async (req, res) => {
 
     const svg = buildSvg({ title: finalTitle, date, members: finalMembers });
 
-    res.setHeader('Content-Type', 'image/svg+xml');
+    res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
     res.status(200).send(svg);
   } catch (err) {
     res.status(500).send('셋로그 생성 중 오류가 발생했습니다.');
