@@ -1,11 +1,10 @@
 // api/setlog.js
-// 셋로그 SVG를 요청 시점 데이터로 동적 생성.
+// 셋로그 SVG를 요청 시점 데이터로 동적 생성. (list.js/detail.js와 동일한 구분자 컨벤션 사용)
 //
-// 방식 1) 그룹 고정 로스터 사용:
-//   GET /api/setlog?group=cheer&date=6월 12일 (금)&overrides={"소피아":{"time":"17:00","content":"...","posted":true}}
-//
-// 방식 2) 직접 인원 지정(자유형):
-//   GET /api/setlog?title=...&date=...&members=[{name,initial,color,time,content,posted}, ...]
+// GET /api/setlog?g=football&d=6월 12일 (금)&p=테오|18:00|훈련 마무리~카를로스|18:00|헬멧 벗는 중
+//   g: 그룹 키 (cheer/football/basketball/dance/band)
+//   d: 스토리상 날짜
+//   p: "이름|시간|내용" 을 ~ 로 이어붙인 목록. 여기 없는 로스터 멤버는 자동 "대기중"
 
 function esc(str) {
   return String(str)
@@ -191,6 +190,25 @@ function buildSvg({ title, date, members }) {
 </svg>`;
 }
 
+// g 파라미터 축약 코드 (list.js/detail.js 스타일에 맞춘 짧은 키)
+const GROUP_ALIASES = {
+  cheer: 'cheer', football: 'football', basketball: 'basketball',
+  dance: 'dance', band: 'band'
+};
+
+// p 파라미터 파싱: "이름|시간|내용~이름2|시간2|내용2" 형식
+// (detail.js의 c= 댓글 파라미터와 동일한 구분자 컨벤션: ~ 로 레코드 구분, | 로 필드 구분)
+function parsePosted(pStr) {
+  if (!pStr) return {};
+  const result = {};
+  pStr.split('~').forEach(record => {
+    const [name, time, content] = record.split('|');
+    if (name) {
+      result[name] = { time: time || '', content: content || '', posted: true };
+    }
+  });
+  return result;
+}
 // 그룹 로스터 + overrides(이름별 time/content/posted)를 합쳐 members 배열 생성
 function buildGroupMembers(groupKey, overrides) {
   const group = GROUPS[groupKey];
@@ -213,35 +231,32 @@ function buildGroupMembers(groupKey, overrides) {
 
 module.exports = async (req, res) => {
   try {
-    const { group, title, date, members, overrides } = req.query;
+    const q = req.query;
+    const group = q.g || q.group;
+    const date = q.d || q.date;
+    const title = q.t || q.title;
+    const members = q.members;
 
     if (!date) {
-      res.status(400).send('date 파라미터가 필요합니다.');
+      res.status(400).send('d(date) 파라미터가 필요합니다.');
       return;
     }
 
     let finalTitle, finalMembers;
 
     if (group) {
-      let parsedOverrides = {};
-      if (overrides) {
-        try {
-          parsedOverrides = JSON.parse(overrides);
-        } catch (e) {
-          res.status(400).send('overrides는 유효한 JSON 객체여야 합니다.');
-          return;
-        }
-      }
+      // p: "이름|시간|내용~이름2|시간2|내용2" 형식 (list.js/detail.js와 동일 구분자 컨벤션)
+      const parsedOverrides = parsePosted(q.p);
       const built = buildGroupMembers(group, parsedOverrides);
       if (!built) {
-        res.status(400).send(`알 수 없는 group입니다. (사용 가능: ${Object.keys(GROUPS).join(', ')})`);
+        res.status(400).send(`알 수 없는 g입니다. (사용 가능: ${Object.keys(GROUPS).join(', ')})`);
         return;
       }
       finalTitle = title || built.title;
       finalMembers = built.members;
     } else {
       if (!title || !members) {
-        res.status(400).send('group 파라미터가 없으면 title, members가 필요합니다.');
+        res.status(400).send('g 파라미터가 없으면 t, members가 필요합니다.');
         return;
       }
       try {
