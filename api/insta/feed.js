@@ -1,7 +1,9 @@
 // api/feed.js
 // 사용법:
-//   /api/feed?a=아이디&t=시간&cap=캡션&lk=좋아요수&cm=댓글수&img=이미지설명&friends=친구1~친구2~친구3
-// 구분자: 단어 사이는 "_", friends는 "~"로 구분(스토리 트레이에 여러 명 표시)
+//   /api/feed?a=아이디&t=시간&cap=캡션&tags=태그1~태그2&lk=좋아요수&img=이미지설명&friends=친구1~친구2~친구3&c=댓글작성자|댓글내용|좋아요수~...
+// 구분자: 단어 사이는 "_", friends/c/tags 내 항목 사이는 "~", 댓글 필드는 "|"(작성자|내용|좋아요수, 좋아요수 생략 가능)
+// tags는 "#" 없이 단어만 넘기면 자동으로 붙여서 하늘색으로 표시
+// c는 최대 4개까지만 렌더링(그 이상은 "더 보기" 문구로 갈음). cm(총 댓글수)은 생략 시 c 개수로 자동 계산
 //
 // 화면 구성:
 //   XOXO 헤더 (하트/DM 아이콘)
@@ -13,9 +15,10 @@
 //   ------------------
 //   하트 / 댓글 / 공유 / 북마크
 //   좋아요 N개
-//   아이디 캡션
-//   댓글 N개 모두 보기
+//   아이디 캡션 · 해시태그
+//   댓글 목록(최대 4개, 아바타+아이디+댓글 한 줄 정렬)
 //   시간
+//   댓글 작성란
 
 function esc(s = "") {
   return String(s)
@@ -42,7 +45,7 @@ function textWidth(s, fontSize) {
   return w;
 }
 
-function wrap(text, fontSize, maxWidthPx) {
+function wrap(text, fontSize, maxWidthPx, firstLineReduction = 0) {
   const words = text.split(" ");
   const lines = [];
   let cur = "";
@@ -51,8 +54,9 @@ function wrap(text, fontSize, maxWidthPx) {
 
   for (const w of words) {
     const wWidth = textWidth(w, fontSize);
+    const limit = lines.length === 0 ? maxWidthPx - firstLineReduction : maxWidthPx;
     const nextWidth = cur ? curWidth + spaceWidth + wWidth : wWidth;
-    if (cur && nextWidth > maxWidthPx) {
+    if (cur && nextWidth > limit) {
       lines.push(cur);
       cur = w;
       curWidth = wWidth;
@@ -100,21 +104,29 @@ module.exports = (req, res) => {
   const author = deslug(q.get("a") || "익명");
   const time = deslug(q.get("t") || "방금 전");
   const caption = deslug(q.get("cap") || "");
+  const tags = (q.get("tags") || "").split("~").filter(Boolean).map((t) => deslug(t).replace(/^#/, ""));
   const likes = parseInt(q.get("lk") || "0", 10) || 0;
-  const comments = parseInt(q.get("cm") || "0", 10) || 0;
   const img = deslug(q.get("img") || "");
   const friends = (q.get("friends") || "").split("~").filter(Boolean).map(deslug);
+  const rawComments = (q.get("c") || "").split("~").filter(Boolean);
+  const commentList = rawComments.slice(0, 4).map((c) => {
+    const [ca, ctext, clikes] = c.split("|");
+    return { author: deslug(ca || "익명"), text: deslug(ctext || ""), likes: parseInt(clikes || "0", 10) || 0 };
+  });
+  const comments = q.get("cm") ? parseInt(q.get("cm"), 10) || 0 : rawComments.length;
 
   const imgLines = wrap(img, 13, 320);
   const capLines = wrap(caption, 12.5, 300);
+  const RIGHT_RESERVE = 46; // 댓글 우측 하트+좋아요수 자리
+  const commentLinesList = commentList.map((c) => {
+    const prefixWidth = textWidth(c.author, 12) * 1.05 + textWidth("  ", 12); // 볼드체 여유 5%
+    return wrap(c.text, 12, 290 - RIGHT_RESERVE, prefixWidth);
+  });
 
   const HEADER_H = 46;
   const TRAY_H = 100;
   const POST_HEADER_H = 60;
   const PHOTO_H = 469;
-  const ACTIONS_H = 46;
-  const CAPTION_TOP = HEADER_H + TRAY_H + 14 + POST_HEADER_H + PHOTO_H + ACTIONS_H + 20;
-  const totalHeight = CAPTION_TOP + capLines.length * 20 + 60;
 
   const parts = [];
 
@@ -213,11 +225,70 @@ module.exports = (req, res) => {
     )
     .join("");
   const afterCapY = metaY + 20 + (capLines.length - 1) * 18;
+
+  const tagsY = tags.length ? afterCapY + 20 : afterCapY;
+  const tagsSvg = tags.length
+    ? `<text x="16" y="${tagsY}" font-size="12" fill="#5AC8FA">${tags.map((t) => "#" + esc(t)).join("  ")}</text>`
+    : "";
+
+  const dividerY = tagsY + (tags.length ? 14 : 14);
+  const dividerSvg = commentList.length
+    ? `<line x1="16" y1="${dividerY}" x2="359" y2="${dividerY}" stroke="#f2f2f2" stroke-width="1"/>`
+    : "";
+
+  let cY = dividerY + (commentList.length ? 22 : 6);
+  const moreCount = comments - commentList.length;
+  const moreLine = moreCount > 0 ? `<text x="16" y="${cY}" font-size="11.5" fill="#8e8e8e">댓글 ${moreCount}개 더 보기</text>` : "";
+  if (moreCount > 0) cY += 22;
+
+  // 댓글: 프로필 + 아이디 + 내용을 한 줄에 나란히(평행) 배치, 우측에 좋아요(하트+수)
+  const commentsSvg = commentList
+    .map((c, idx) => {
+      const lines = commentLinesList[idx];
+      const rowTop = cY;
+      const av = renderAvatar(24, rowTop + 6, 11, c.author);
+      const firstLine = `<text x="42" y="${rowTop + 10}" font-size="12" fill="#666666"><tspan font-weight="600" fill="#111111">${esc(c.author)}</tspan>  ${esc(lines[0] || "")}</text>`;
+      const restLines = lines
+        .slice(1)
+        .map((l, li) => `<text x="42" y="${rowTop + 10 + (li + 1) * 16}" font-size="12" fill="#666666">${esc(l)}</text>`)
+        .join("");
+      const heartSvg = `
+        <g transform="translate(345,${rowTop - 2})">
+          <path d="M6,12 C6,12 1,8.5 1,5 C1,3 2.5,1.6 4.5,1.6 C5.6,1.6 6.4,2.2 6,3 C6.4,2.2 7.4,1.6 8.5,1.6 C10.5,1.6 12,3 12,5 C12,8.5 6,12 6,12 Z" fill="none" stroke="#8e8e8e" stroke-width="1.2"/>
+          <text x="6" y="24" font-size="9.5" fill="#8e8e8e" text-anchor="middle">${c.likes}</text>
+        </g>
+      `;
+      cY = rowTop + 16 + (lines.length - 1) * 16 + 18;
+      return av + firstLine + restLines + heartSvg;
+    })
+    .join("");
+  const afterCommentsY = cY;
+
+  const timestampY = afterCommentsY + 14;
+
+  // 댓글 작성란
+  const inputBarY = timestampY + 22;
+  const inputBarSvg = `
+    <line x1="0" y1="${inputBarY}" x2="375" y2="${inputBarY}" stroke="#efefef" stroke-width="1"/>
+    <g transform="translate(0,${inputBarY})">
+      ${renderAvatar(28, 30, 15, author)}
+      <rect x="52" y="12" width="255" height="36" rx="18" fill="#f7f7f7" stroke="#efefef" stroke-width="1"/>
+      <text x="66" y="34" font-size="12" fill="#9a9a9a">댓글 달기...</text>
+      <text x="340" y="34" font-size="12" font-weight="600" fill="#5AC8FA">게시</text>
+    </g>
+  `;
+  const INPUT_BAR_H = 60;
+  const totalHeight = inputBarY + INPUT_BAR_H;
+
   parts.push(`
     <text x="16" y="${metaY}" font-size="12.5" font-weight="600" fill="#111111">좋아요 ${likes}개</text>
     ${caption ? capSvg : ""}
-    <text x="16" y="${afterCapY + 18}" font-size="11.5" fill="#8e8e8e">댓글 ${comments}개 모두 보기</text>
-    <text x="16" y="${afterCapY + 36}" font-size="11" fill="#c2c2c2">${esc(time)}</text>
+    ${tagsSvg}
+    ${dividerSvg}
+    ${moreLine}
+    ${commentsSvg}
+    <text x="16" y="${timestampY}" font-size="11" fill="#c2c2c2">${esc(time)}</text>
+    ${inputBarSvg}
   `);
 
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="375" height="${totalHeight}" viewBox="0 0 375 ${totalHeight}" font-family="-apple-system, 'Apple SD Gothic Neo', sans-serif">
