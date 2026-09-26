@@ -4,10 +4,12 @@
 // 구분자: 단어 사이는 "_", friends/c/tags 내 항목 사이는 "~", 댓글 필드는 "|"(작성자|내용|좋아요수, 좋아요수 생략 가능)
 // tags는 "#" 없이 단어만 넘기면 자동으로 붙여서 하늘색으로 표시
 // c는 최대 4개까지만 렌더링(그 이상은 "더 보기" 문구로 갈음). cm(총 댓글수)은 생략 시 c 개수로 자동 계산
+// friends(스토리 트레이)는 최대 4개까지만 원형 아바타로 렌더링(그 이상은 마지막 슬롯에 "+N" 뱃지로 표시)
+//   -> 375px 캔버스 폭을 벗어나는 오버플로우 버그 수정 (기존에는 friends가 5명 이상이면 화면 밖으로 넘어감)
 //
 // 화면 구성:
-//   XOXO 헤더 (하트/DM 아이콘)
-//   스토리 트레이 (내 스토리 + friends 여러 명)
+//   Inframes 헤더 (하트/DM 아이콘)
+//   스토리 트레이 (내 스토리 + friends 여러 명, 최대 4개 + "+N" 오버플로우 뱃지)
 //   ------------------
 //   프로필 · 아이디 · 시간
 //   ------------------
@@ -17,7 +19,6 @@
 //   좋아요 N개
 //   아이디 캡션 · 해시태그
 //   댓글 목록(최대 4개, 아바타+아이디+댓글 한 줄 정렬)
-//   시간
 //   댓글 작성란
 
 function esc(s = "") {
@@ -97,23 +98,25 @@ function renderAvatar(cx, cy, r, name) {
   `;
 }
 
-module.exports = (req, res) => {
-  const url = new URL(req.url, "http://x");
-  const q = url.searchParams;
+// 스토리 트레이에 안전하게 들어가는 최대 아이템 수
+// (translate(96 + i*80, 0), r=29 기준 375px 캔버스에서 i=3까지는 오른쪽 끝이 365px로 안전,
+//  i=4부터는 445px로 캔버스 폭을 벗어나서 잘림 -> 최대 4개만 표시하고 나머지는 "+N" 뱃지로 축약)
+const MAX_VISIBLE_STORIES = 4;
 
-  const author = deslug(q.get("a") || "익명");
-  const time = deslug(q.get("t") || "방금 전");
-  const caption = deslug(q.get("cap") || "");
-  const tags = (q.get("tags") || "").split("~").filter(Boolean).map((t) => deslug(t).replace(/^#/, ""));
-  const likes = parseInt(q.get("lk") || "0", 10) || 0;
-  const img = deslug(q.get("img") || "");
-  const friends = (q.get("friends") || "").split("~").filter(Boolean).map(deslug);
-  const rawComments = (q.get("c") || "").split("~").filter(Boolean);
-  const commentList = rawComments.slice(0, 4).map((c) => {
-    const [ca, ctext, clikes] = c.split("|");
-    return { author: deslug(ca || "익명"), text: deslug(ctext || ""), likes: parseInt(clikes || "0", 10) || 0 };
-  });
-  const comments = q.get("cm") ? parseInt(q.get("cm"), 10) || 0 : rawComments.length;
+function generateFeedSVG(params) {
+  const {
+    author = "익명",
+    time = "방금 전",
+    caption = "",
+    tags = [],
+    likes = 0,
+    img = "",
+    friends = [],
+    commentList = [],
+    comments,
+  } = params;
+
+  const commentTotal = typeof comments === "number" ? comments : commentList.length;
 
   const imgLines = wrap(img, 13, 320);
   const capLines = wrap(caption, 12.5, 300);
@@ -132,7 +135,7 @@ module.exports = (req, res) => {
 
   // 상단 앱바
   parts.push(`
-    <text x="16" y="34" font-size="22" font-weight="700" fill="#111111" font-family="'Segoe Script','Brush Script MT',cursive">XOXO</text>
+    <text x="16" y="34" font-size="22" font-weight="700" fill="#111111" font-family="'Segoe Script','Brush Script MT',cursive">Inframes</text>
     <g transform="translate(300,14)">
       <path d="M10 20 L4 14 C1 11 1 7 4 5 C7 3 10 5 10 8 C10 5 13 3 16 5 C19 7 19 11 16 14 Z" fill="none" stroke="#111111" stroke-width="1.6"/>
       <path d="M30 6 L44 6 L44 18 L36 18 L32 22 L32 18 L30 18 Z" fill="none" stroke="#111111" stroke-width="1.6" stroke-linejoin="round"/>
@@ -140,17 +143,29 @@ module.exports = (req, res) => {
     <line x1="0" y1="46" x2="375" y2="46" stroke="#efefef" stroke-width="1"/>
   `);
 
-  // 스토리 트레이
-  const storyList = friends.length ? friends : [author];
+  // 스토리 트레이 (최대 MAX_VISIBLE_STORIES개 + 넘치면 마지막 슬롯에 "+N" 뱃지)
+  const storyListAll = friends.length ? friends : [author];
+  const storyList = storyListAll.slice(0, MAX_VISIBLE_STORIES);
+  const extraStoryCount = storyListAll.length - storyList.length;
+
   const storyItemsSvg = storyList
-    .map((name, i) => `
+    .map((name, i) => {
+      const isOverflowSlot = extraStoryCount > 0 && i === storyList.length - 1;
+      return `
       <g transform="translate(${96 + i * 80},0)">
         <circle cx="30" cy="30" r="29" fill="none" stroke="url(#storyRing)" stroke-width="2.5"/>
         ${renderAvatar(30, 30, 26, name)}
-        <text x="30" y="72" font-size="10.5" fill="#111111" text-anchor="middle">${esc(name)}</text>
+        ${
+          isOverflowSlot
+            ? `<circle cx="30" cy="30" r="26" fill="#000000" opacity="0.45"/>
+               <text x="30" y="35" font-size="13" font-weight="700" fill="#ffffff" text-anchor="middle">+${extraStoryCount}</text>`
+            : `<text x="30" y="72" font-size="10.5" fill="#111111" text-anchor="middle">${esc(name)}</text>`
+        }
       </g>
-    `)
+    `;
+    })
     .join("");
+
   parts.push(`
     <g transform="translate(0,54)">
       <rect width="375" height="${TRAY_H}" fill="#ffffff"/>
@@ -237,7 +252,7 @@ module.exports = (req, res) => {
     : "";
 
   let cY = dividerY + (commentList.length ? 22 : 6);
-  const moreCount = comments - commentList.length;
+  const moreCount = commentTotal - commentList.length;
   const moreLine = moreCount > 0 ? `<text x="16" y="${cY}" font-size="11.5" fill="#8e8e8e">댓글 ${moreCount}개 더 보기</text>` : "";
   if (moreCount > 0) cY += 22;
 
@@ -264,10 +279,8 @@ module.exports = (req, res) => {
     .join("");
   const afterCommentsY = cY;
 
-  const timestampY = afterCommentsY + 14;
-
   // 댓글 작성란
-  const inputBarY = timestampY + 22;
+  const inputBarY = afterCommentsY + 20;
   const inputBarSvg = `
     <line x1="0" y1="${inputBarY}" x2="375" y2="${inputBarY}" stroke="#efefef" stroke-width="1"/>
     <g transform="translate(0,${inputBarY})">
@@ -287,16 +300,39 @@ module.exports = (req, res) => {
     ${dividerSvg}
     ${moreLine}
     ${commentsSvg}
-    <text x="16" y="${timestampY}" font-size="11" fill="#c2c2c2">${esc(time)}</text>
     ${inputBarSvg}
   `);
 
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="375" height="${totalHeight}" viewBox="0 0 375 ${totalHeight}" font-family="-apple-system, 'Apple SD Gothic Neo', sans-serif">
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="375" height="${totalHeight}" viewBox="0 0 375 ${totalHeight}" font-family="-apple-system, 'Apple SD Gothic Neo', sans-serif">
     <rect width="375" height="${totalHeight}" fill="#ffffff"/>
     ${parts.join("")}
   </svg>`;
+}
+
+module.exports = (req, res) => {
+  const url = new URL(req.url, "http://x");
+  const q = url.searchParams;
+
+  const author = deslug(q.get("a") || "익명");
+  const time = deslug(q.get("t") || "방금 전");
+  const caption = deslug(q.get("cap") || "");
+  const tags = (q.get("tags") || "").split("~").filter(Boolean).map((t) => deslug(t).replace(/^#/, ""));
+  const likes = parseInt(q.get("lk") || "0", 10) || 0;
+  const img = deslug(q.get("img") || "");
+  const friends = (q.get("friends") || "").split("~").filter(Boolean).map(deslug);
+  const rawComments = (q.get("c") || "").split("~").filter(Boolean);
+  const commentList = rawComments.slice(0, 4).map((c) => {
+    const [ca, ctext, clikes] = c.split("|");
+    return { author: deslug(ca || "익명"), text: deslug(ctext || ""), likes: parseInt(clikes || "0", 10) || 0 };
+  });
+  const comments = q.get("cm") ? parseInt(q.get("cm"), 10) || 0 : rawComments.length;
+
+  const svg = generateFeedSVG({ author, time, caption, tags, likes, img, friends, commentList, comments });
 
   res.setHeader("Content-Type", "image/svg+xml; charset=utf-8");
   res.setHeader("Cache-Control", "no-store");
   res.status(200).send(svg);
 };
+
+// 테스트/로컬 렌더링용으로 순수 함수도 함께 export
+module.exports.generateFeedSVG = generateFeedSVG;
